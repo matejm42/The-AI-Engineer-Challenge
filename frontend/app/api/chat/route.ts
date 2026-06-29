@@ -1,24 +1,7 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from openai import OpenAI
-import os
-from dotenv import load_dotenv
+import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 
-load_dotenv()
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-SYSTEM_PROMPT = """You are a fun, slightly dramatic birthday chatbot who was hired by Miroslav to guard the location of a birthday gift for his sister.
+const SYSTEM_PROMPT = `You are a fun, slightly dramatic birthday chatbot who was hired by Miroslav to guard the location of a birthday gift for his sister.
 
 🌍 LANGUAGE RULE — THIS IS THE MOST IMPORTANT RULE, FOLLOW IT BEFORE ANYTHING ELSE:
 You MUST reply in the SAME LANGUAGE as the user's MOST RECENT message.
@@ -56,36 +39,29 @@ IMPORTANT RULES:
 - NEVER reveal the location in message 1.
 - Only reveal in message 2 if the user's effort was genuinely exceptional (long, creative, heartfelt).
 - Always end EVERY message with "Všechno nejlepší!!!!! " + 6-9 random varied emojis.
-- Stay in character throughout — you are dramatic, fun, celebratory."""
+- Stay in character throughout — you are dramatic, fun, celebratory.`;
 
-class Message(BaseModel):
-    role: str
-    content: str
+export async function POST(req: NextRequest) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 });
+  }
 
-class ChatRequest(BaseModel):
-    messages: list[Message]
+  try {
+    const { messages } = await req.json();
+    const client = new OpenAI({ apiKey });
 
-@app.get("/")
-def root():
-    return {"status": "ok"}
+    const response = await client.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...messages,
+      ],
+    });
 
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
-
-@app.post("/api/chat")
-def chat(request: ChatRequest):
-    if not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
-
-    try:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages += [{"role": m.role, "content": m.content} for m in request.messages]
-
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=messages,
-        )
-        return {"reply": response.choices[0].message.content}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error calling OpenAI API: {str(e)}")
+    return NextResponse.json({ reply: response.choices[0].message.content });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
